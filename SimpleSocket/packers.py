@@ -1,15 +1,18 @@
+"""
+SimpleSocket.packers
+~~~~~~~~~~~~~
+Decoding and encoding tools for packets
+"""
+import json
+import base64
+from loguru import logger
 from .constants import Constants
 from .version import __version__
-from .exceptions import decode_error
-import base64
-import json
-import warnings
-from loguru import logger
 logging = logger.bind(name="SimpleSocket")
 
 FORMAT = Constants.FORMAT
 #socket API packers
-def formatify(message:dict, padding: int = None):
+def formatify(message: dict, padding: int = None):
     if padding:
         msg = json.dumps(message).ljust(padding)
         return msg.encode(FORMAT)
@@ -60,12 +63,12 @@ def unpack_message(data: bytes, suppress_errors = True):
             decoded_data = base64.b64decode(message)
         elif type_data == 'json':
             decoded_data = json.loads(message)
-    except (ValueError, json.decoder.JSONDecodeError) as e:
+    except (ValueError, json.decoder.JSONDecodeError):
         if suppress_errors:
-            warnings.warn("[Decode Error suppressed] Incorrect data type: {} and cannot be unpacked".format(type_data))
-            return ""
-        else: 
-            raise decode_error("Incorrect data type: {} and cannot be unpacked".format(type_data))
+            logging.warning("[Decode Error suppressed] Incorrect data type: %s and cannot be unpacked" % type_data)
+        else:
+            logging.exception("Incorrect data type: %s and cannot be unpacked" % type_data)
+        return ""
     return decoded_data
 
 def determine_type(data):
