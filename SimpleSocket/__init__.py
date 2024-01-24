@@ -1,3 +1,9 @@
+"""
+SimpleSocket
+~~~~~~~~~~~~~
+Making Sockets simplier to implement
+"""
+
 from .simplesocket import SimpleClient, SimpleServer, ClientObject
 from .model_api import Client_Main, Server_Main
 from .constants import Constants
