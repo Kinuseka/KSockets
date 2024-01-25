@@ -76,9 +76,8 @@ def determine_type(data):
         return 'bytes'
     elif isinstance(data, int):
         return 'int'
-    try:
-        json.dumps(data)
+    elif isinstance(data, dict):
         return 'json'
-    except json.decoder.JSONDecodeError:
-        # If decoding as JSON fails, assume it's a string
+    else:
+        #Set default encoding to string
         return 'str'
