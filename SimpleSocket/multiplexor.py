@@ -9,7 +9,7 @@ import concurrent.futures
 from functools import wraps
 import time
 from loguru import logger
-from .simplesocket import ClientObject
+from .simplesocket import ClientObject, SimpleClient
 logging = logger.bind(name="SimpleSocket")
 
 def _thread_handler(command, *args, **kwargs):
@@ -30,15 +30,28 @@ def multi_send(clients: List[ClientObject], current_client: ClientObject, messag
         futures = [executor.submit(_thread_handler, client.send, message) for client in clients if current_client != client]
     return [f.result() for f in futures]
 
+def _find_client(*args, **kwargs):
+    for arg in args:
+        if isinstance(arg, ClientObject) or isinstance(arg, SimpleClient):
+            return arg
+    for key, value in kwargs.items():
+        if isinstance(value, ClientObject) or isinstance(value, SimpleClient):
+            return value
+    return None
+
 def handle_event(func=None, threaded=True, process=False):
     """
     Decorator for handling events in a threaded manner.
-    Must pass a client or server instance to the function.
+    Must pass a `SimpleClient` or `ClientObject` instance to the first parameter of the decorated function.
+
+    threaded: Run a new thread based event
+    process: Run a new multiprocessing based event
     """
     assert callable(func) or func is None
     def _decorator(func) -> Callable[..., ThreadedConnection]:
         @wraps(func)
-        def _wrapper(client, *args, **kwargs) -> ThreadedConnection:
+        def _wrapper(*args, **kwargs) -> ThreadedConnection:
+            client = _find_client(*args, **kwargs)
             if threaded:
                 thread = ThreadedConnection(client, func ,*args, **kwargs)
                 thread.start()
@@ -50,6 +63,12 @@ def handle_event(func=None, threaded=True, process=False):
 
 class ThreadedConnection(Thread):
     def __init__(self, client: ClientObject, func, *args, **kwargs):
+        """
+        Threaded Connection handler. 
+        Creates a new thread for the event loop.
+        """
+        if not isinstance(client, ClientObject) and not isinstance(client, SimpleClient):
+            raise ValueError("The first parameter is not a valid Client type object")
         super().__init__()
         self._func = func
         self._args = args
@@ -66,7 +85,7 @@ class ThreadedConnection(Thread):
         Run the thread
         """
         try:
-            self.future = self._func(self._client, *self._args, *self._kwargs)
+            self.future = self._func(*self._args, *self._kwargs)
         except KeyboardInterrupt:
             return
         except Exception as e:
@@ -83,6 +102,12 @@ class ThreadedConnection(Thread):
             return self._get_result(timeout=timeout)
         except TimeoutError:
             return None
+
+    def close(self):
+        """
+        Closes the associated client on this thread event
+        """
+        self._client.close()
 
     def get_client(self):
         """
