@@ -8,6 +8,7 @@ from typing import List
 import socket
 import json
 import time
+from uuid import uuid4
 from loguru import logger
 from .packers import pack_message, unpack_message
 from .model_api import Client_Main, Server_Main
@@ -23,9 +24,7 @@ class SimpleClient:
         self.client = Client_Main(address=address)
         self.version = __version__
         self.clients = []
-        #Acknowledge Hello
-        self.send("HelloAck")
-        self.receive()
+        self.id = 0
 
     def _send_bytes(self, data: bytes, **kwargs):
         return self.client.send(data=data, **kwargs)
@@ -33,6 +32,13 @@ class SimpleClient:
     def _receive_bytes(self, **kwargs):
         data = self.client.receive(**kwargs)
         return data
+
+    def connect(self):
+        "Connect to the server"
+        self.send(Constants.ACKNOWLEDGE)
+        if self.receive() == Constants.ACKNOWLEDGE:
+            self.send(Constants.ASKID)
+            self.id = int(self.receive()['ID'])
 
     def send(self, data, type_data=None, thread_lock = True):
         """
@@ -83,8 +89,11 @@ class SimpleClient:
         """
         Close the client
         """
-        if not already_dead:
-            self.send(Constants.DISCONNECT.format(__version__))
+        try:
+            if not already_dead:
+                self.send(Constants.DISCONNECT.format(__version__))
+        except OSError as e:
+            logging.debug("Failed to send disconnect notice due to: %s" % e)
         self.client.close()
 
     def __enter__(self):
@@ -102,6 +111,7 @@ class ClientObject:
         self.parent = parent
         self.address = address
         self.isactive = True
+        self.id = 0
 
     def receive(self, timeout = 0,  thread_lock = False):
         """
@@ -198,6 +208,10 @@ class SimpleServer:
         message = clientobj.receive()
         if message == "HelloAck":
             clientobj.send("HelloAck")
+            if clientobj.receive() == Constants.ASKID:
+                gen_id = uuid4().int
+                clientobj.id = gen_id
+                clientobj.send({"ID": gen_id})
             self.clients.append(clientobj)
             return clientobj
         else:
