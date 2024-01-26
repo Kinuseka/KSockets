@@ -30,7 +30,7 @@ def pack_message(message, type_data):
         if not type_data:
             type_data = determine_type(message)
         if type_data == 'bytes':
-            encoded_data = base64.b64encode(message)
+            encoded_data = base64.b64encode(message).decode('ascii')
         elif type_data == 'json':
             encoded_data = json.dumps(message)
         else:
