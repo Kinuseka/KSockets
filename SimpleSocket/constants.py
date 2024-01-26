@@ -6,6 +6,8 @@ Stored constant variables
 class Constants:
     #General
     DEFAULT_ADDR = ('127.0.0.1', 3001)
+    ACKNOWLEDGE = "HelloAck"
+    ASKID = "ms_SimpleSocketID_version{}"
     #Backend constants
     FORMAT = "utf-8"
     HEADER_CHUNKS = 128
