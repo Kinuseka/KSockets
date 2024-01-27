@@ -64,6 +64,7 @@ class SocketModel:
             template['r'] = len(data)
             client_target.sendall(formatify(template, padding=self.header_chunksize))
             client_target.sendall(data)
+        return len(data)
     @synchronized_rx
     def receive(self, client: socket.socket = None, **kwargs):
         """
