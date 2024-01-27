@@ -69,20 +69,17 @@ class SimpleClient:
                 unpacked_message = unpack_message(message)
                 if unpacked_message == Constants.PING_CODE.format(__version__):
                     continue
-                elif message == Constants.DISCONNECT.format(__version__):
-                    self.close()
-                    break
                 else:
                     return unpacked_message
             elif isinstance(message, bool):
-                self.close(already_dead=True)
+                self.close()
                 break
             if timeout != 0:
                 limit += 1
                 time.sleep(1)
         else:
             if close_on_timeout:
-                self.close(already_dead=True)
+                self.close()
             return None
 
     def wait(self, thread):
@@ -90,15 +87,10 @@ class SimpleClient:
         thread.start()
         time.sleep(1)
 
-    def close(self, already_dead = False):
+    def close(self):
         """
         Close the client
         """
-        try:
-            if not already_dead:
-                self.send(Constants.DISCONNECT.format(__version__))
-        except OSError as e:
-            logging.debug("Failed to send disconnect notice due to: %s" % e)
         self.client.close()
 
     def __enter__(self):
@@ -257,7 +249,7 @@ class SimpleServer:
             if not fix_recursion: clientobj.close()
         except (ValueError, IndexError) as e:
             logging.debug("Error suppressed when removing client: %s" % e)
-            client.close(already_dead=True)
+            client.close()
 
     def remove_all_clients(self):
         """
