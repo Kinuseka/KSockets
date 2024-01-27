@@ -56,14 +56,14 @@ class SocketModel:
             'r': self.chunk_size
         }
         if len(data) > self.chunk_size:
-            client_target.send(formatify(template, padding=self.header_chunksize))
+            client_target.sendall(formatify(template, padding=self.header_chunksize))
             chunks = [data[i:i+self.chunk_size] for i in range(0, len(data), self.chunk_size)]
             for chunk in chunks:
-                client_target.send(chunk)
+                client_target.sendall(chunk)
         else:
             template['r'] = len(data)
-            client_target.send(formatify(template, padding=self.header_chunksize))
-            client_target.send(data)
+            client_target.sendall(formatify(template, padding=self.header_chunksize))
+            client_target.sendall(data)
     @synchronized_rx
     def receive(self, client: socket.socket = None, **kwargs):
         """
