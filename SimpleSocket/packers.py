@@ -5,6 +5,7 @@ Decoding and encoding tools for packets
 """
 import json
 import base64
+from typing import Union
 from loguru import logger
 from .constants import Constants
 from .version import __version__
@@ -27,23 +28,23 @@ def decodify(message: bytes, padding: int = None):
 
 #Simple Socket packers
 def pack_message(message, type_data):
-        if not type_data:
-            type_data = determine_type(message)
-        if type_data == 'bytes':
-            encoded_data = base64.b64encode(message).decode('ascii')
-        elif type_data == 'json':
-            encoded_data = json.dumps(message)
-        else:
-            encoded_data = message
-        initial_message = {
-            "msg": encoded_data,
-            "type": type_data,
-            "version": __version__
-        }
-        encoded_message = json.dumps(initial_message).encode(encoding=FORMAT)
-        return encoded_message
+    if not type_data:
+        type_data = determine_type(message)
+    if type_data == 'bytes':
+        encoded_data = base64.b64encode(message).decode('ascii')
+    elif type_data == 'json':
+        encoded_data = json.dumps(message)
+    else:
+        encoded_data = message
+    initial_message = {
+        "msg": encoded_data,
+        "type": type_data,
+        "version": __version__
+    }
+    encoded_message = json.dumps(initial_message).encode(encoding=FORMAT)
+    return encoded_message
 
-def unpack_message(data: bytes, suppress_errors = True):
+def unpack_message(data: bytes, suppress_errors = True) -> Union[str, int, dict, bytes]:
     decoded_message = data.decode(encoding=FORMAT)
     try:
         unpacked_message = json.loads(decoded_message)
