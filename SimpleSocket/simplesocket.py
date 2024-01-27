@@ -48,7 +48,12 @@ class SimpleClient:
         thread_lock: make operation thread safe
         """
         message = pack_message(data, type_data=type_data)
-        return self._send_bytes(message, thread_lock=thread_lock)
+        try:
+            return self._send_bytes(data=message, thread_lock=thread_lock)
+        except OSError as e:
+            logging.warning("Could not send message due to: %s" % e)
+            self.close()
+            return 0
 
     def receive(self, timeout: int = 0, close_on_timeout = False, thread_lock = True):
         """
@@ -125,15 +130,16 @@ class ClientObject:
             return ""
         return message
 
-    def send(self, message, thread_lock = False):
+    def send(self, data, thread_lock = False):
         """
         Send data to this client
         """
         try:
-            return self.parent.send(data=message, client=self, thread_lock=thread_lock)
+            return self.parent.send(data=data, client=self, thread_lock=thread_lock)
         except OSError as e:
             logging.warning("Could not send message due to: %s" % e)
             self.close()
+            return 0
 
     def close(self):
         self.isactive = False
