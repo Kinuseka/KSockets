@@ -46,7 +46,7 @@ class SocketModel:
         self.header_chunksize = None
         self.socket: socket.socket = None
     @synchronized_tx
-    def send(self, data, client: socket.socket = None, **kwargs):
+    def send_all(self, data, client: socket.socket = None, **kwargs):
         """
         Low level function, handling protocol transmission
         """
@@ -66,7 +66,7 @@ class SocketModel:
             client_target.sendall(data)
         return len(data)
     @synchronized_rx
-    def receive(self, client: socket.socket = None, **kwargs):
+    def receive_all(self, client: socket.socket = None, **kwargs):
         """
         Low level function, handling protocol incoming data
         """
@@ -125,9 +125,9 @@ class SocketModel:
 
 
 class Client_Main(SocketModel):
-    def __init__(self, socket: socket.socket = socket.socket(), address: tuple = None, chunk_size = 1024) -> None:
+    def __init__(self, socket_obj: socket.socket = None, address: tuple = None, chunk_size = 1024) -> None:
         '''
-        socket: Socket object
+        socket: Socket object or socket class
         address: Destination address to connect to
         '''
         super().__init__()
@@ -135,8 +135,42 @@ class Client_Main(SocketModel):
         self.chunk_size = chunk_size # Suggested chunksize but server might enforce a preferred one
         self.header_chunksize = cnts.HEADER_CHUNKS
         #Init Socket
-        self.socket = socket
-        self.socket.connect(self.address)
+        self.socket = socket_obj 
+        self._socket = None
+        if self.socket:
+            self.socket = socket_obj
+        else:
+            self._socket = socket.socket
+
+    def _create_connection(self):
+        host, port = self.address
+        err = None
+        for res in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM):
+            af, socktype, proto, canonname, sa = res
+            try:
+                self.socket = self._socket(af, socktype, proto)
+                self.socket.connect(sa)
+                # Break explicitly a reference cycle
+                err = None
+                return
+            except OSError as _:
+                err = _
+                if self.socket is not None:
+                    self.socket.close()
+        if err is not None:
+            try:
+                raise err
+            finally:
+                # Break explicitly a reference cycle
+                err = None
+        else:
+            raise OSError("getaddrinfo returns an empty list")
+
+    def connect_to_server(self):
+        if self._socket:
+            self._create_connection()
+        else:
+            self.socket.connect()
         #{ch:16892}
         try:
             self.socket.sendall(formatify({'req': 'request-head'}, padding=1024))
@@ -173,10 +207,10 @@ class Server_Main(SocketModel):
         #Initialize server
         self.socket.bind(self.address)
 
-    def listen(self, backlog = 5):
+    def listen_connections(self, backlog = 5):
         self.socket.listen(backlog)
     
-    def accept(self):
+    def accept_client(self):
         """
         Accept connection and allow only after protocol has been enforced
         """
