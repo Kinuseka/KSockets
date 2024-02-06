@@ -21,20 +21,21 @@ class SimpleClient:
     High level class for communicating to server
     """
     def __init__(self, address = Constants.DEFAULT_ADDR) -> None:
-        self.client = Client_Main(address=address)
+        self.address = address
         self.version = __version__
-        self.clients = []
+        self.client = Client_Main(address=self.address)
         self.id = 0
 
     def _send_bytes(self, data: bytes, **kwargs):
-        return self.client.send(data=data, **kwargs)
+        return self.client.send_all(data=data, **kwargs)
 
     def _receive_bytes(self, **kwargs):
-        data = self.client.receive(**kwargs)
+        data = self.client.receive_all(**kwargs)
         return data
 
     def connect(self):
         "Connect to the server"
+        self.client.connect_to_server()
         self.send(Constants.ACKNOWLEDGE)
         if self.receive() == Constants.ACKNOWLEDGE:
             self.send(Constants.ASKID)
@@ -155,10 +156,10 @@ class SimpleServer:
         self.clients: List[ClientObject] = []
     #Transmit Backend
     def _send_bytes(self, data: bytes, client: socket.socket, **kwargs):
-        return self.server.send(data=data, client=client, **kwargs)
+        return self.server.send_all(data=data, client=client, **kwargs)
 
     def _receive_bytes(self, client: socket.socket, **kwargs):
-        return self.server.receive(client=client, **kwargs)
+        return self.server.receive_all(client=client, **kwargs)
     #Transmission Line
     def send(self, data, client: ClientObject, type_data = None, thread_lock = False):
         """
@@ -198,11 +199,11 @@ class SimpleServer:
 
     def listen(self):
         "Start listening"
-        self.server.listen()
+        self.server.listen_connections()
 
     def accept(self):
         "Handles automatic client accept, rejects incompatible clients"
-        clientobj = ClientObject(self, *self.server.accept())
+        clientobj = ClientObject(self, *self.server.accept_client())
         message = clientobj.receive()
         if message == "HelloAck":
             clientobj.send("HelloAck")
