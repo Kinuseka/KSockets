@@ -53,7 +53,7 @@ def handle_event(func=None, threaded=True, process=False):
         def _wrapper(*args, **kwargs) -> ThreadedConnection:
             client = _find_client(*args, **kwargs)
             if threaded:
-                thread = ThreadedConnection(client, func ,*args, **kwargs)
+                thread = ThreadedConnection(_client=client, func=func, args=args, kwargs=kwargs)
                 thread.start()
             if process:
                 ...
@@ -62,18 +62,18 @@ def handle_event(func=None, threaded=True, process=False):
     return _decorator(func) if callable(func) else _decorator
 
 class ThreadedConnection(Thread):
-    def __init__(self, client: ClientObject, func, *args, **kwargs):
+    def __init__(self, _client: ClientObject, func, **arguments):
         """
         Threaded Connection handler. 
         Creates a new thread for the event loop.
         """
-        if not isinstance(client, ClientObject) and not isinstance(client, SimpleClient):
+        if not isinstance(_client, ClientObject) and not isinstance(_client, SimpleClient):
             raise ValueError("The first parameter is not a valid Client type object")
         super().__init__()
         self._func = func
-        self._args = args
-        self._kwargs = kwargs
-        self._client = client
+        self._args = arguments['args']
+        self._kwargs = arguments['kwargs']
+        self._client = _client
         #
         self.daemon = True
         self.future = None
@@ -85,7 +85,7 @@ class ThreadedConnection(Thread):
         Run the thread
         """
         try:
-            self.future = self._func(*self._args, *self._kwargs)
+            self.future = self._func(*self._args, **self._kwargs)
         except KeyboardInterrupt:
             return
         except Exception as e:
