@@ -40,7 +40,7 @@ def synchronized_rx(func):
         return func(*args, **kwargs)
     return wrapper
 
-class SocketModel:
+class SocketAPI:
     def __init__(self) -> None:
         self.chunk_size = None
         self.header_chunksize = None
@@ -108,23 +108,15 @@ class SocketModel:
                 return None
             data.extend(packet)
         return data
-
-    def unsafe_receive(self, client: socket.socket = None):
-        """
-        Receive data without thread safety.
-        Potentially destructive and might cause errors
-        """
-        return self.receive(client=client, thread_lock=False)
     
-    def unsafe_send(self, data, client: socket.socket = None):
-        """
-        Send data without thread safety.
-        Potentially destructive and might cause errors
-        """
-        return self.send(data=data, client=client, thread_lock=False)
+    def _cmd(self, head: str, body:str, client: socket.socket = None):
+            cmd = head+" "+body
+            body = cmd.ljust(cnts.HELLO_BUFF).encode(cnts.HELLO_FORM)
+            _comm = client if client else self.socket
+            _comm.send(body)
+            _data = _comm.recv(cnts.HELLO_BUFF).decode(cnts.HELLO_FORM)
 
-
-class Client_Main(SocketModel):
+class SocketClient(SocketAPI):
     def __init__(self, socket_obj: socket.socket = None, address: tuple = None, chunk_size = 1024) -> None:
         '''
         socket: Socket object or socket class
@@ -166,6 +158,10 @@ class Client_Main(SocketModel):
         else:
             raise OSError("getaddrinfo returns an empty list")
 
+
+    def hello(self):
+        ...
+
     def connect_to_server(self):
         if self._socket:
             self._create_connection()
@@ -190,7 +186,7 @@ class Client_Main(SocketModel):
     def close(self):
         self.socket.close()
         
-class Server_Main(SocketModel):
+class SocketServer(SocketAPI):
     def __init__(self, socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM), address: tuple = ('127.0.0.1', 3010), chunk_size = 1024, enforce_chunks = True) -> None:
         '''
         socket: Socket object
@@ -209,6 +205,9 @@ class Server_Main(SocketModel):
 
     def listen_connections(self, backlog = 5):
         self.socket.listen(backlog)
+    
+    def hello_ack(self):
+        ...
     
     def accept_client(self):
         """
