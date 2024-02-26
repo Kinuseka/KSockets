@@ -9,14 +9,17 @@
 # Taken from CFSession
 
 __version_info__ = (0, 1, 0, 'final', 0)
+__protocol_version_info__ = (1, 0)
 
-def _get_version(version_info):
+def _get_version(version_info, explicit_versioning = True):
     " Returns a PEP 440-compliant version number from version_info. "
     assert len(version_info) == 5
     assert version_info[3] in ('dev', 'alpha', 'beta', 'rc', 'final')
 
-    #parts = 2 if version_info[2] == 0 else 3
-    parts = 3 #I want explicit versioning
+    if explicit_versioning:
+        parts = 3 #I want explicit versioning
+    else:
+        parts = 2 if version_info[2] == 0 else 3
     v = '.'.join(map(str, version_info[:parts]))
 
     if version_info[3] == 'dev':
@@ -27,3 +30,4 @@ def _get_version(version_info):
     return v
 
 __version__ = _get_version(__version_info__)
+__protocol_version__ = '.'.join(map(str, __protocol_version_info__))
