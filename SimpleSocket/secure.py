@@ -80,12 +80,12 @@ class SecureSocketServer(SocketServer):
 @overload
 def wrap_secure(ssocket: SimpleClient,
                 certpath: str = None,
-                keypath: str = None,
                 context: ssl.SSLContext = None,
                 verify: bool = True
         ) -> SimpleClient: ...
 @overload
-def wrap_secure(ssocket: SimpleServer,certpath: str = None,
+def wrap_secure(ssocket: SimpleServer,
+                certpath: str = None,
                 keypath: str = None,
                 context: ssl.SSLContext = None,
                 verify: bool = True
