@@ -166,7 +166,7 @@ class SocketClient(SocketAPI):
         if self._socket:
             self._create_connection()
         else:
-            self.socket.connect()
+            self.socket.connect(self.address)
         #{ch:16892}
         try:
             self.socket.sendall(formatify({'req': 'request-head'}, padding=1024))
@@ -184,10 +184,10 @@ class SocketClient(SocketAPI):
         #Header Chunksize is equal to the length of chunksize
     
     def close(self):
-        self.socket.close()
-        
+        if self.socket:
+            self.socket.close()
 class SocketServer(SocketAPI):
-    def __init__(self, socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM), address: tuple = ('127.0.0.1', 3010), chunk_size = 1024, enforce_chunks = True) -> None:
+    def __init__(self, socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM), address: tuple = ('127.0.0.1', 3010,), chunk_size = 1024, enforce_chunks = True) -> None:
         '''
         socket: Socket object
         address: Address to bind to
@@ -199,7 +199,7 @@ class SocketServer(SocketAPI):
         self.chunk_size = chunk_size
         self.enforce_chunks = enforce_chunks
         self.header_chunksize = cnts.HEADER_CHUNKS
-        self.socket = socket
+        self.socket = socket_obj
         #Initialize server
         self.socket.bind(self.address)
 
