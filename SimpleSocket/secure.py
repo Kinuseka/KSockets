@@ -1,18 +1,35 @@
 from .socket_api import SocketClient, SocketServer, SocketAPI
 from .simplesocket import SimpleClient, SimpleServer
 from .constants import Constants as cnts
-from typing import Union
+from typing import Union, overload
+from loguru import logger
 import ssl
 import socket
+logging = logger.bind(name="SimpleSocket")
 
 class SecureSocketClient(SocketClient):
     def __init__(self,
-                 context: ssl.SSLContext,
+                 context: ssl.SSLContext = None,
                  addr: tuple = None,
+                 certpath = None,
+                 verify = True,
                  *args,
                  **kwargs
                 ):
-        context = context if context else ssl.create_default_context()
+        if not context:
+            context = ssl.SSLContext(
+                    protocol=ssl.PROTOCOL_TLS_CLIENT
+                )
+            if not certpath and not verify:
+                logging.warning('You will be prone for MITM! No valid certificate was indicated and will not verify if the server is legitimate. Use this for testing only!')
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+            elif not certpath:
+                context.load_default_certs(purpose=ssl.Purpose.SERVER_AUTH)
+        if certpath:
+            context.load_verify_locations(
+                cafile=certpath
+            )
         context.options &= ~ssl.OP_NO_SSLv3
         context.set_ciphers('DEFAULT@SECLEVEL=1')
         #Convert to secure socket
@@ -25,12 +42,30 @@ class SecureSocketClient(SocketClient):
 
 class SecureSocketServer(SocketServer):
     def __init__(self,
-                 context: ssl.SSLContext,
+                 context: ssl.SSLContext = None,
                  addr: tuple = None,
+                 certpath = None,
+                 keypath = None,
+                 verify = True,
                  *args,
                  **kwargs
                 ):
-        context = context if context else ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        if not context:
+            context = ssl.SSLContext(
+                    protocol=ssl.PROTOCOL_TLS_SERVER
+                )
+            if not certpath and not verify:
+                logging.warning('You will be prone for MITM! No valid certificate was indicated and will not verify if the client is legitimate. Use this for testing only!')
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+            elif not certpath:
+                context.load_default_certs(purpose=ssl.Purpose.CLIENT_AUTH)
+        if certpath:
+            context.load_cert_chain(
+                certfile=certpath,
+                keyfile=keypath
+            )
+    
         context.options &= ~ssl.OP_NO_SSLv3
         context.set_ciphers('DEFAULT@SECLEVEL=1')
         #Convert to secure socket
@@ -41,30 +76,46 @@ class SecureSocketServer(SocketServer):
         super().__init__(socket_obj=secure_server, address=addr, *args, **kwargs)
         self.address = addr
 
+
+@overload
+def wrap_secure(ssocket: SimpleClient,
+                certpath: str = None,
+                keypath: str = None,
+                context: ssl.SSLContext = None,
+                verify: bool = True
+        ) -> SimpleClient: ...
+@overload
+def wrap_secure(ssocket: SimpleServer,certpath: str = None,
+                keypath: str = None,
+                context: ssl.SSLContext = None,
+                verify: bool = True
+        ) -> SimpleServer: ...
+
 def wrap_secure(
-        ssocket: Union[SimpleServer, SimpleClient],
-        context: ssl.SSLContext
-):
-        """
-        Run Simple socket under secure TLS/SSL socket backend
-        """
+        ssocket: Union[SimpleClient, SimpleServer],
+        certpath: str = None,
+        keypath: str = None,
+        context: ssl.SSLContext = None,
+        verify: bool = True
+) -> Union[SimpleClient, SimpleServer]:
         _inst_type = None
         addr = ssocket.address
         if isinstance(ssocket, SimpleClient):
                 _inst_type = 'client'
                 socket_api: SocketClient = getattr(ssocket, 'client', None)
                 socket_api.close()
-                secure_api = SecureSocketClient(context=context, addr=addr)
+                secure_api = SecureSocketClient(context=context, addr=addr, certpath=certpath, verify=verify)
                 ssocket.client = secure_api
         elif isinstance(ssocket, SimpleServer):
                 _inst_type = 'server'
                 socket_api: SocketServer = getattr(ssocket, 'server', None)
                 socket_api.close()
-                secure_api = SecureSocketServer(context=context, addr=addr)
+                secure_api = SecureSocketServer(context=context, addr=addr, certpath=certpath, keypath=keypath, verify=verify)
                 ssocket.server = secure_api
         else:
                 raise AttributeError('Invalid instance')
         return ssocket
+
 # def simpleClientSSL(
 #             socket_api: Union[SocketClient, SocketServer], 
 #             context: ssl.SSLContext = None
