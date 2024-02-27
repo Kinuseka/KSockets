@@ -11,7 +11,7 @@ import time
 from uuid import uuid4
 from loguru import logger
 from .packers import pack_message, unpack_message
-from .model_api import Client_Main, Server_Main
+from .socket_api import SocketClient, SocketServer
 from .constants import Constants
 from .version import __version__
 logging = logger.bind(name="SimpleSocket")
@@ -20,10 +20,14 @@ class SimpleClient:
     """
     High level class for communicating to server
     """
-    def __init__(self, address = Constants.DEFAULT_ADDR) -> None:
+    def __init__(self, address = Constants.DEFAULT_ADDR, socket_api:SocketClient = None) -> None:
+        """
+        address = Address to connect to.
+        socket_api: High level socket object that inherits from `SocketAPI` class
+        """
         self.address = address
         self.version = __version__
-        self.client = Client_Main(address=self.address)
+        self.client = socket_api if socket_api else SocketClient(address=self.address)
         self.id = 0
 
     def _send_bytes(self, data: bytes, **kwargs):
@@ -150,8 +154,14 @@ class SimpleServer:
     """
     High level class for managing clients and accepting connections
     """
-    def __init__(self, address = Constants.DEFAULT_ADDR, chunks = 1024):
-        self.server = Server_Main(address=address, chunk_size = chunks)
+    def __init__(self, address = Constants.DEFAULT_ADDR, chunks = 4096, socket_api: SocketServer = None):
+        """
+        address: Address to listen to.
+        chunks: Size of the message chunk
+        socket_api: High level socket object that inherits from `SocketAPI` class
+        """
+        self.address = address
+        self.server = socket_api if socket_api else SocketServer(address=address, chunk_size = chunks)
         self.version = __version__
         self.clients: List[ClientObject] = []
     #Transmit Backend
