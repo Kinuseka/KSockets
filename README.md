@@ -1,8 +1,8 @@
-# SimpleSocket
+# KSockets
 Make sockets super simple!
 
-## SimpleSocket
-Simple socket is a super simple socket integration on python. It ensures reliable TCP communication without having to do many specific setups.
+## KSockets
+KSockets is a super simple socket integration on python. It ensures reliable TCP communication without having to do many specific setups.
 
 ## Installation
 As it had not been published yet to PYPi installation is not possible
@@ -10,10 +10,12 @@ As it had not been published yet to PYPi installation is not possible
 ## Usage
 Client:
 ```py
+from KSockets import SimpleClient
 client = SimpleClient(("127.0.0.1",3001))
 ```
 Server: 
 ```py
+from KSockets import SimpleServer
 server = SimpleServer(chunks=8196)
 server.listen()
 ```
