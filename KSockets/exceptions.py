@@ -20,9 +20,7 @@ class ReconnectionFailure(SocketException):
     def __init__(self, message, property, *args, **kwargs):
         super().__init__(message, property, *args, **kwargs)
 
-class KSocketException(BaseException):
-    "General KSocket Exception"
+class NotReadyError(SocketException):
+    "The server/client is not ready for use or has not been properly initialized"
     def __init__(self, message, property, *args, **kwargs):
-        self.message=message
-        self.property=property
-        super().__init__(message,*args,**kwargs)
+        super().__init__(message, property, *args, **kwargs)
