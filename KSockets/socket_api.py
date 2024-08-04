@@ -11,6 +11,8 @@ import time
 from .exceptions import client_protocol_mismatch
 from .constants import Constants as cnts
 from .packers import formatify, decodify
+from . import options
+import os
 
 rx_lock = threading.Lock()
 tx_lock = threading.Lock()
@@ -135,9 +137,9 @@ class SocketClient(SocketAPI):
         self.socket = socket_obj 
         self._socket = None
         if self.socket:
-            self.socket = socket_obj
+            self.iscustom = True
         else:
-            self._socket = socket.socket
+            self.iscustom = False
 
     def _create_connection(self):
         host, port = self.address
@@ -145,11 +147,10 @@ class SocketClient(SocketAPI):
         for res in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM):
             af, socktype, proto, canonname, sa = res
             try:
-                self.socket = self._socket(af, socktype, proto)
-                self.socket.connect(sa)
+                self.socket = socket.socket(af, socktype, proto)
                 # Break explicitly a reference cycle
                 err = None
-                return
+                return self.socket
             except OSError as _:
                 err = _
                 if self.socket is not None:
@@ -167,14 +168,14 @@ class SocketClient(SocketAPI):
         ...
 
     def connect_to_server(self):
-        if self._socket:
+        if not self.iscustom:
             self._create_connection()
-        else:
-            self.socket.connect(self.address)
+        self.socket.connect(self.address)
         #{ch:16892}
         try:
             self.socket.sendall(formatify({'req': 'request-head'}, padding=1024))
-            _initial_header = decodify(self.socket.recv(1024), padding=1024)['ch']
+            _raw_header = self.socket.recv(1024)
+            _initial_header = decodify(_raw_header, padding=1024)['ch']
             #sc indicates server allows client suggestion
             if _initial_header == 'sc': 
                 _packed_msg = json.dumps({'ch': self.header_chunksize})
@@ -191,7 +192,7 @@ class SocketClient(SocketAPI):
         if self.socket:
             self.socket.close()
 class SocketServer(SocketAPI):
-    def __init__(self, socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM), address: tuple = ('127.0.0.1', 3010,), chunk_size = 1024, enforce_chunks = True) -> None:
+    def __init__(self, socket_obj: socket.socket = None, address: tuple = ('127.0.0.1', 3010,), chunk_size = 1024, enforce_chunks = True, dualstack_options = options.DUALSTACK_DISABLED) -> None:
         '''
         A server-side API for sockets.
         Meant to bridge the functionality between SimpleSocket and Python sockets
@@ -206,11 +207,59 @@ class SocketServer(SocketAPI):
         self.chunk_size = chunk_size
         self.enforce_chunks = enforce_chunks
         self.header_chunksize = cnts.HEADER_CHUNKS
+        self.dualstack_options = dualstack_options
         self.socket = socket_obj
-        #Initialize server
+        self._socket = None
+        if self.socket:
+            self.iscustom = True
+        else:
+            self.iscustom = False
+
+    def _create_socket(self):
+        #Following socket.create_server as a reference with modifications
+        ipv6_only = False
+        dualstack_set = False
+        if not socket.has_dualstack_ipv6() and self.dualstack_options == options.DUALSTACK_ENABLED:   
+            raise ValueError("dualstack_ipv6 not supported on this platform")
+        #Determine option for the correct AF type:
+        if self.dualstack_options == options.DUALSTACK_DISABLED:
+            AF = socket.AF_INET
+        elif self.dualstack_options == options.IPV6_ONLY:
+            AF = socket.AF_INET6
+            ipv6_only = True
+        elif self.dualstack_options == options.DUALSTACK_ENABLED:
+            dualstack_set = True
+            AF = socket.AF_INET6
+        if not self.iscustom:
+            self.socket = socket.socket(AF, socket.SOCK_STREAM)
+        if os.name not in ('nt', 'cygwin') and \
+                hasattr(socket._socket, 'SO_REUSEADDR'):
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            except socket.error:
+                # Fail later on bind(), for platforms which may not
+                # support this option.
+                pass
+        if socket.has_ipv6 and AF == socket.AF_INET6:
+            if dualstack_set:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            elif hasattr(socket._socket, "IPV6_V6ONLY") and \
+                    hasattr(socket._socket, "IPPROTO_IPV6") and ipv6_only:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            else:
+                raise ValueError('Your machine does not support ipv6')
+        return self.socket
+    
+    def initialize_socket(self, reuse_port = False):
+        if not self.iscustom:
+            self._create_socket()
+        if reuse_port and not hasattr(socket._socket, "SO_REUSEPORT"):
+            raise ValueError("SO_REUSEPORT not supported on this platform")
+        elif reuse_port:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         self.socket.bind(self.address)
 
-    def listen_connections(self, backlog = 5):
+    def listen_connections(self, backlog = 128):
         self.socket.listen(backlog)
     
     def hello_ack(self):
