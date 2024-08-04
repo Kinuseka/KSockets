@@ -55,7 +55,7 @@ class SimpleClient:
         if self.receive() == Constants.ACKNOWLEDGE:
             resp = send_command(is_connected=bool(self.id), client=self.client, cmd=CMD.REQ_RECCON)
             if resp == CMD.REPL_RECCON_DE:
-                raise Exceptions.ReconnectionFailure('Server Denied reconnection')
+                raise Exceptions.ReconnectionFailure('Server Denied reconnection', property=self)
             elif resp == CMD.REPL_RECCON_OK:
                 return True
 
@@ -74,18 +74,19 @@ class SimpleClient:
             self.close()
             return 0
 
-    def receive(self, timeout: int = 0, close_on_timeout = False, thread_lock = True):
+    def receive(self, timeout: int = 0, close_on_timeout = False, thread_lock = True, unpack_exc_detailed = False):
         """
         Receive data from the server
         timeout: How long to wait before unblocking. Set 0 for indefinite wait
         close_on_timeout: Connection will close if timeout reached. If false will return None
         thread_lock: make operation thread safe
+        unpack_exc_detailed: Prints an exception if unpacking fails
         """
         limit = 1 if timeout == 0 else 0
         while limit != timeout:
             message = self._receive_bytes(thread_lock=thread_lock)
             if message:
-                unpacked_message = unpack_message(message)
+                unpacked_message = unpack_message(message, suppress_errors=(not unpack_exc_detailed))
                 if unpacked_message == Constants.PING_CODE.format(__version__):
                     continue
                 else:
@@ -179,7 +180,7 @@ class SimpleServer:
     """
     High level class for managing clients and accepting connections
     """
-    def __init__(self, address = Constants.DEFAULT_ADDR, chunks = 4096, socket_api: SocketServer = None, await_invalidation = 0):
+    def __init__(self, address = Constants.DEFAULT_ADDR, chunks = 4096, socket_api: SocketServer = None, ipv6_config = None):
         """
         address: Address to listen to.
         chunks: Size of the message chunk
@@ -188,6 +189,8 @@ class SimpleServer:
         """
         self.address = address
         self.server = socket_api if socket_api else SocketServer(address=address, chunk_size = chunks)
+        if ipv6_config:
+            self.server.dualstack_options = ipv6_config
         self.version = __version__
         self.clients: List[ClientObject] = []
         self._secure = False
@@ -235,12 +238,21 @@ class SimpleServer:
         "Closes the server"
         self.server.close()
 
-    def listen(self):
-        "Start listening"
-        self.server.listen_connections()
+    def create_server(self, reuse_port = False):
+        "Creates a socket, and initializes it"
+        self.server.initialize_socket(reuse_port=reuse_port)
 
+    def listen(self, backlog: int = 128):
+        "Start listening for incoming connections"
+        if self.server.socket:
+            self.server.listen_connections(backlog=backlog)
+        else:
+            raise Exceptions.NotReadyError('Server has not been properly initialized', property=self)
+        
     def accept(self):
-        "Handles automatic client accept, rejects incompatible clients"
+        "Handles automatic client accept, rejects incompatible clients, "
+        if not self.server.socket:
+            raise Exceptions.NotReadyError('Server has not been properly initialized', property=self)
         try:
             clientobj = ClientObject(self, *self.server.accept_client())
             message = clientobj.receive()
