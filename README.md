@@ -12,11 +12,13 @@ Client:
 ```py
 from KSockets import SimpleClient
 client = SimpleClient(("127.0.0.1",3001))
+client.connect()
 ```
 Server: 
 ```py
 from KSockets import SimpleServer
 server = SimpleServer(chunks=8196)
+server.create_server()
 server.listen()
 ```
 
