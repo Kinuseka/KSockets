@@ -7,8 +7,9 @@ import json
 import base64
 from typing import Union, TYPE_CHECKING
 from loguru import logger
+from semver import Version
 from .constants import Constants
-from .version import __version__
+from .version import __version__, __version_semver__
 logging = logger.bind(name="SimpleSocket")
 
 if TYPE_CHECKING:
@@ -23,11 +24,14 @@ def formatify(message: dict, padding: int = None):
     return json.dumps(message).encode(FORMAT)
 
 def decodify(message: bytes, padding: int = None):
-    if padding:
-        msg = message.decode(FORMAT)
-        padding_end = msg.find('}', 0, padding)
-        return json.loads(msg[:padding_end + 1])
-    return json.loads(message.decode(FORMAT))
+    try:
+        if padding:
+            msg = message.decode(FORMAT)
+            padding_end = msg.find('}', 0, padding)
+            return json.loads(msg[:padding_end + 1])
+        return json.loads(message.decode(FORMAT))
+    except UnicodeDecodeError:
+        return {}
 
 #Simple Socket packers
 def pack_message(message, type_data):
@@ -42,7 +46,7 @@ def pack_message(message, type_data):
     initial_message = {
         "msg": encoded_data,
         "type": type_data,
-        "version": __version__
+        "version": __version_semver__
     }
     encoded_message = json.dumps(initial_message).encode(encoding=FORMAT)
     return encoded_message
@@ -54,11 +58,20 @@ def unpack_message(data: bytes, suppress_errors = True) -> Union[str, int, dict,
     except json.JSONDecodeError as e:
         logger.error("Incompatible message received! Error: %s" % e)
         return ""
-    if unpacked_message.get('version') != __version__:
-        raise TypeError(f"Version mismatch, the other line has: {__version__}")
-    message = unpacked_message.get('msg')
-    type_data = unpacked_message.get("type")
     try:
+        version_remote = Version.parse(unpacked_message.get("version"))
+        version_local = Version.parse(__version_semver__)
+        if not version_remote.is_compatible(version_local): 
+            #Check if remote is compatible with local. 
+            #Example 1.1.0 should be compatible with 1.0.0
+            #1.0.0.is_compatible(1.1.0) = True
+            return ""
+    except (ValueError):
+        logging.error("An incompatible version was received from server/client")
+        return ""
+    try:
+        message = unpacked_message.get('msg')
+        type_data = unpacked_message.get("type")
         if type_data == 'str':
             decoded_data = message
         elif type_data == 'int':

@@ -81,6 +81,7 @@ class SocketAPI:
             return False
         try:
             header = decodify(received_bytes, padding=self.header_chunksize)
+            if not header: return b''
             total_len = header['a']
             chunked = header['r']
         except (KeyError, json.decoder.JSONDecodeError):
@@ -175,12 +176,12 @@ class SocketClient(SocketAPI):
         try:
             self.socket.sendall(formatify({'req': 'request-head'}, padding=1024))
             _raw_header = self.socket.recv(1024)
-            _initial_header = decodify(_raw_header, padding=1024)['ch']
+            _initial_header = decodify(_raw_header, padding=1024).get('ch', None)
             #sc indicates server allows client suggestion
             if _initial_header == 'sc': 
                 _packed_msg = json.dumps({'ch': self.header_chunksize})
                 self.socket.sendall(_packed_msg.encode('utf-8'))
-            else:
+            elif isinstance(_initial_header, int):
                 self.chunk_size = _initial_header
         except json.decoder.JSONDecodeError as e:
             raise client_protocol_mismatch("Client cannot decode server's initial response. The client might be outdated or the server is invalid", property=self)
@@ -279,9 +280,11 @@ class SocketServer(SocketAPI):
                 if request.get("req") == "request-head":
                     client.sendall(formatify({'ch': self.chunk_size}, padding=1024))
                     return (client, address) 
-            except (socket.timeout, BlockingIOError, OSError):
+                client.close()
+            except (socket.timeout, BlockingIOError, OSError, socket.error):
                 time.sleep(0.5)
-                continue      
+                continue
+
         
     def close(self):
         self.socket.close()
