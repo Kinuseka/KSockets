@@ -5,7 +5,7 @@ Make sockets super simple!
 KSockets is a super simple socket integration on python. It ensures reliable TCP communication without having to do many specific setups.
 
 ## Installation
-As it had not been published yet to PYPi installation is not possible
+`pip install KSockets`
 
 ## Usage
 Client:
