@@ -33,10 +33,12 @@ class SimpleClient:
         self.id = 0
         self._secure = False
 
-    def _send_bytes(self, data: bytes, **kwargs):
+    def send_bytes(self, data: bytes, **kwargs):
+        "Send raw data bytes. This is a lower level implementation and should use `.send()` instead"
         return self.client.send_all(data=data, **kwargs)
 
-    def _receive_bytes(self, **kwargs):
+    def receive_bytes(self, **kwargs):
+        "Receive raw data bytes. This is a lower level implementation and should use `.receive()` instead"
         data = self.client.receive_all(**kwargs)
         return data
 
@@ -58,7 +60,7 @@ class SimpleClient:
                 raise Exceptions.ReconnectionFailure('Server Denied reconnection', property=self)
             elif resp == CMD.REPL_RECCON_OK:
                 return True
-
+    
     def send(self, data, type_data=None, thread_lock = True):
         """
         Send data to server
@@ -68,7 +70,7 @@ class SimpleClient:
         """
         message = pack_message(data, type_data=type_data)
         try:
-            return self._send_bytes(data=message, thread_lock=thread_lock)
+            return self.send_bytes(data=message, thread_lock=thread_lock)
         except OSError as e:
             logging.warning("Could not send message due to: %s" % e)
             self.close()
@@ -81,16 +83,16 @@ class SimpleClient:
         close_on_timeout: Connection will close if timeout reached. If false will return None
         thread_lock: make operation thread safe
         unpack_exc_detailed: Prints an exception if unpacking fails
+        Returns None if connection is closed
         """
         limit = 1 if timeout == 0 else 0
         while limit != timeout:
-            message = self._receive_bytes(thread_lock=thread_lock)
+            message = self.receive_bytes(thread_lock=thread_lock)
             if message:
                 unpacked_message = unpack_message(message, suppress_errors=(not unpack_exc_detailed))
-                if unpacked_message == Constants.PING_CODE.format(__version__):
+                if isinstance(unpacked_message, str) and (unpacked_message.find(Constants._OLD_PING_CODE) != -1 or unpacked_message.find(Constants.PING_CODE) != -1):
                     continue
-                else:
-                    return unpacked_message
+                return unpacked_message
             elif isinstance(message, bool):
                 self.close()
                 break
@@ -123,7 +125,7 @@ class ClientObject:
     """
     Client object for connected clients
     """
-    def __init__(self, parent: 'SimpleServer', client: socket.socket, address) -> None:
+    def __init__(self, parent: 'SimpleServer', client: socket.socket, address: list) -> None:
         self.client = client
         self.parent = parent
         self.address = address
@@ -141,7 +143,15 @@ class ClientObject:
             time.sleep(1)
         return bool(self.parent.find_client_by_id(self.id))
     
-    def receive(self, timeout = 0,  thread_lock = False):
+    def send_bytes(self, data: bytes, thread_lock = False):
+        "Send raw data bytes. This is a lower level implementation and should use `.send()` instead"
+        return self.parent._send_bytes(data=data, client=self.client, thread_lock=thread_lock)
+    
+    def receive_bytes(self, thread_lock = False):
+        "Receive raw data bytes. This is a lower level implementation and should use `.receive()` instead"
+        return self.parent._receive_bytes(client=self.client, thread_lock=thread_lock)
+
+    def receive(self, timeout = 0, thread_lock = False):
         """
         Receive data from this client
         """
@@ -152,13 +162,13 @@ class ClientObject:
             self.close()
             return ""
         return message
-
-    def send(self, data, thread_lock = False):
+    
+    def send(self, data, type_data = None, thread_lock = False):
         """
         Send data to this client
         """
         try:
-            return self.parent.send(data=data, client=self, thread_lock=thread_lock)
+            return self.parent.send(data=data, type_data=type_data, client=self, thread_lock=thread_lock)
         except OSError as e:
             logging.warning("Could not send message due to: %s" % e)
             self.close()
@@ -201,6 +211,7 @@ class SimpleServer:
 
     def _receive_bytes(self, client: socket.socket, **kwargs):
         return self.server.receive_all(client=client, **kwargs)
+    
     #Transmission Line
     def send(self, data, client: ClientObject, type_data = None, thread_lock = False):
         """
@@ -218,9 +229,9 @@ class SimpleServer:
             message = self._receive_bytes(client=client.client, thread_lock=thread_lock)
             if message:
                 unpacked_message = unpack_message(message)
-                if unpacked_message == Constants.PING_CODE.format(__version__):
+                if isinstance(unpacked_message, str) and (unpacked_message.find(Constants._OLD_PING_CODE) != -1 or unpacked_message.find(Constants.PING_CODE) != -1):
                     continue
-                elif message == Constants.DISCONNECT.format(__version__):
+                elif isinstance(unpacked_message, str) and (unpacked_message.find(Constants.DISCONNECT) != -1):
                     self.remove_client(client)
                     break
                 else:
@@ -256,10 +267,10 @@ class SimpleServer:
         try:
             clientobj = ClientObject(self, *self.server.accept_client())
             message = clientobj.receive()
-            if message == "HelloAck":
-                clientobj.send("HelloAck")
+            if message.find(Constants.ACKNOWLEDGE) != -1:
+                clientobj.send(Constants.ACKNOWLEDGE)
                 clientresp = clientobj.receive()
-                if clientresp == Constants.ASKID:
+                if clientresp.find(Constants._OLD_ASKID) != -1 or clientresp.find(Constants.ASKID) != -1:
                     gen_id = uuid4().int
                     clientobj.id = gen_id
                     clientobj.send({"ID": gen_id})
