@@ -7,15 +7,23 @@ class Constants:
     #General
     DEFAULT_ADDR = ('127.0.0.1', 3001)
     ACKNOWLEDGE = "HelloAck"
-    ASKID = "ms_SimpleSocketID_version{}"
+    ASKID = "ASK ID"
+    _OLD_ASKID = "ms_SimpleSocketAskID_version"
     #Backend constants
     FORMAT = "utf-8"
     HELLO_BUFF = 16 #9b command, 1b space, 6b attribute
     HELLO_FORM = 'ascii'
     HEADER_CHUNKS = 128
     #Simple Client
-    PING_CODE = "ms_SimpleSocketPing_version{}"
-    DISCONNECT = "ms_SimpleSocketDisconnect_version{}"
+    PING_CODE = "KSCKT PING"
+    DISCONNECT = "KSCKT DISCONNECT"
+    _OLD_PING_CODE = "ms_SimpleSocketPing_version"
+    _OLD_DISCONNECT = "ms_SimpleSocketDisconnect_version"
+    ACK_STREAM = "STRM RDY"
+    INIT_STREAM = "STRM INIT"
+    MSG_STREAM = "STRM MSG"
+    STOP_STREAM = "STRM STP"
+    
 
 class CMD:
     #Anonymous Commands
