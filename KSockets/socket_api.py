@@ -1,5 +1,5 @@
 """
-KSockets.model_api
+KSockets.socket_api
 ~~~~~~~~~~~~~
 Lower level api for socket communication
 """
@@ -12,8 +12,10 @@ from .exceptions import client_protocol_mismatch
 from .constants import Constants as cnts
 from .packers import formatify, decodify
 from . import options
+from loguru import logger
 import os
 
+logging = logger.bind(name="SimpleSocket")
 rx_lock = threading.Lock()
 tx_lock = threading.Lock()
 def synchronized_tx(func):
@@ -73,44 +75,53 @@ class SocketAPI:
     @synchronized_rx
     def receive_all(self, client: socket.socket = None, **kwargs):
         """
-        Low level function, handling protocol incoming data
+        Low level function, handling protocol incoming data,
+        We should assume disconnection for invalid protocols
         """
         client_target = client if client else self.socket
-        received_bytes = self._recvall(client_target, self.header_chunksize)
-        if not received_bytes:
+        header_data = self._recvall(client_target, self.header_chunksize)
+        if not header_data:
+            logging.debug("Data received violates protocol, no header found")
             return False
         try:
-            header = decodify(received_bytes, padding=self.header_chunksize)
-            if not header: return b''
+            header = decodify(header_data, padding=self.header_chunksize)
+            if not header: 
+                logging.debug("Data received violates protocol, no is not decodable, this might be due to an error or a client is not following the protocol or outdated")
+                return False
             total_len = header['a']
             chunked = header['r']
         except (KeyError, json.decoder.JSONDecodeError):
+            logging.debug("Data received violates protocol, Message is not json decodable")
             return b''
-        total_received = 0
-        if not chunked > self.chunk_size:
-            #Reject message if client disrespects negotiated chunk size
-            data = b''
-            data_left = total_len
-            while not total_received >= total_len:
-                if data_left > self.chunk_size:
-                    chunked = self.chunk_size
-                    data_left -= self.chunk_size
-                else:
-                    chunked = data_left
-                new_data = self._recvall(client_target, chunked)
-                if not new_data: break
-                data += new_data
-                total_received = len(data)
-            return data
-        else: 
+        if chunked > self.chunk_size:
+            logging.debug("Data received violates protocol, Chunked size is greater than the server's chunk size")
             return b''
+            # return b''
+        return self._receive_chunks(client_target, total_len)
+
+    def _receive_chunks(self, client_target: socket.socket, total_len: int):
+        "Receive packets in chunks"
+        data = bytearray()
+        remaining = total_len
+        while remaining > 0:
+            chunk_size = min(self.chunk_size, remaining)
+            chunk = self._recvall(client_target, chunk_size)
+            if not chunk:
+                break  
+            data.extend(chunk)
+            remaining -= len(chunk)
+        return bytes(data)
         
     def _recvall(self, client: socket.socket, byte_target):
+        """
+        Ensure we receive the exact amount of packets from TCP stream
+        This ensures we prevent getting any extra or lacking data from the stream
+        """
         data = bytearray()
         while len(data) < byte_target:
             packet = client.recv(byte_target - len(data))
             if not packet:
-                return None
+                return b''
             data.extend(packet)
         return data
     
