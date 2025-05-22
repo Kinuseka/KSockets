@@ -29,7 +29,8 @@ classifiers = [
 
 dependencies = [
     "loguru>=0.7.2",
-    "semver>=3,<4"
+    "semver>=3,<4",
+    "zstandard==0.23.0"
 ]
 
 [project.urls]

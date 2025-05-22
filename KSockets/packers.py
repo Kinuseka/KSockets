@@ -10,16 +10,38 @@ from loguru import logger
 from semver import Version
 from .constants import Constants
 from .version import __version__, __version_semver__
+from zstandard import ZstdCompressor, ZstdDecompressor
 logging = logger.bind(name="SimpleSocket")
 
 if TYPE_CHECKING:
     from .simplesocket import SimpleClient
 
 FORMAT = Constants.FORMAT
+
+class CompressionManager:
+    def __init__(self, type: int, level:int):
+        if type == 1:
+            self.compressor = ZstdCompressor(level=level)
+            self.decompressor = ZstdDecompressor()
+        #Normally impossible to fail this area
+    
+    def compress(self, data: bytes):
+        cmp_data = self.compressor.compress(data)
+        return cmp_data
+    
+    def decompress(self, data: bytes):
+        dec_data = self.decompressor.decompress(data)
+        return dec_data
+
 #socket API packers
 def formatify(message: dict, padding: int = None):
     if padding:
-        msg = json.dumps(message).ljust(padding)
+        # encoded = json.dumps(message).encode(FORMAT)
+        # pad_adjust = padding - len(message)
+        # message = encoded + b' ' * pad_adjust
+        # return message
+        msg = json.dumps(message)
+        msg = msg.ljust(padding)
         return msg.encode(FORMAT)
     return json.dumps(message).encode(FORMAT)
 
@@ -40,7 +62,11 @@ def pack_message(message, type_data):
     if type_data == 'bytes':
         encoded_data = base64.b64encode(message).decode('ascii')
     elif type_data == 'json':
-        encoded_data = json.dumps(message)
+        if isinstance(message, dict):
+            encoded_data = json.dumps(message)
+        else:
+            logging.error("Received non-dict data type but type_data is %s: %s" % (type(message), type_data))
+            return False
     else:
         encoded_data = message
     initial_message = {
@@ -51,7 +77,7 @@ def pack_message(message, type_data):
     encoded_message = json.dumps(initial_message).encode(encoding=FORMAT)
     return encoded_message
 
-def unpack_message(data: bytes, suppress_errors = True) -> Union[str, int, dict, bytes]:
+def unpack_message(data: bytes, suppress_errors = False) -> Union[str, int, dict, bytes]:
     decoded_message = data.decode(encoding=FORMAT)
     try:
         unpacked_message = json.loads(decoded_message)
@@ -65,6 +91,7 @@ def unpack_message(data: bytes, suppress_errors = True) -> Union[str, int, dict,
             #Check if remote is compatible with local. 
             #Example 1.1.0 should be compatible with 1.0.0
             #1.0.0.is_compatible(1.1.0) = True
+            logger.error("Incompatible version received from server/client: %s" % version_remote)
             return ""
     except (ValueError):
         logging.error("An incompatible version was received from server/client")
@@ -80,9 +107,13 @@ def unpack_message(data: bytes, suppress_errors = True) -> Union[str, int, dict,
             decoded_data = base64.b64decode(message)
         elif type_data == 'json':
             decoded_data = json.loads(message)
+        else:
+            if not suppress_errors:
+                logging.error("Received unknown data type from client: %s" % type_data)
+            return ""
     except (ValueError, json.decoder.JSONDecodeError):
         if suppress_errors:
-            logging.warning("[Decode Error suppressed] Incorrect data type: %s and cannot be unpacked" % type_data)
+            logging.warning("Incorrect data type: %s and cannot be unpacked" % type_data)
         else:
             logging.exception("Incorrect data type: %s and cannot be unpacked" % type_data)
         return ""

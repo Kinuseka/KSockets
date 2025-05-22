@@ -14,6 +14,10 @@ class Constants:
     HELLO_BUFF = 16 #9b command, 1b space, 6b attribute
     HELLO_FORM = 'ascii'
     HEADER_CHUNKS = 128
+    INIT_BUF = 1024
+    #HAProxy
+    MAGIC_PROXV1 = b'PROXY '
+    MAGIC_PROXV2 = b'\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A'
     #Simple Client
     PING_CODE = "KSCKT PING"
     DISCONNECT = "KSCKT DISCONNECT"
@@ -23,6 +27,8 @@ class Constants:
     INIT_STREAM = "STRM INIT"
     MSG_STREAM = "STRM MSG"
     STOP_STREAM = "STRM STP"
+    #Supported Protocol
+    CMPDEC_SUPPORT = ["zstd"]
     
 
 class CMD:

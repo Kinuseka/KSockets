@@ -8,7 +8,7 @@
 #     (1, 2, 0, 'final', 0) => "1.2.0"
 # Taken from CFSession
 
-__version_info__ = (2, 0, 0, 'alpha', 0)
+__version_info__ = (2, 0, 0, 'alpha', 2)
 __protocol_version_info__ = (1, 0)
 
 def _get_version(version_info, explicit_versioning = True):

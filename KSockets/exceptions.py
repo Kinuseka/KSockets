@@ -24,3 +24,8 @@ class NotReadyError(SocketException):
     "The server/client is not ready for use or has not been properly initialized"
     def __init__(self, message, property, *args, **kwargs):
         super().__init__(message, property, *args, **kwargs)
+
+class compression_error(SocketException):
+    "There is an issue with operating a compression related tasks"
+    def __init__(self, message, property, *args, **kwargs):
+        super().__init__(message, property, *args, **kwargs)

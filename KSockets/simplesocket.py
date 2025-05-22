@@ -24,8 +24,9 @@ class SimpleClient:
     """
     def __init__(self, address = Constants.DEFAULT_ADDR, socket_api:SocketClient = None) -> None:
         """
-        address = Address to connect to.
+        address: Address to connect to.
         socket_api: High level socket object that inherits from `SocketAPI` class
+        options: An object containing all necessary settings
         """
         self.address = address
         self.version = __version__
@@ -125,10 +126,11 @@ class ClientObject:
     """
     Client object for connected clients
     """
-    def __init__(self, parent: 'SimpleServer', client: socket.socket, address: list) -> None:
+    def __init__(self, parent: 'SimpleServer', client: socket.socket, address: tuple[str, int], canonical_address: Union[tuple[str, int], tuple] = ()):
         self.client = client
         self.parent = parent
         self.address = address
+        self.canonical_address = canonical_address
         self.isactive = True
         self.id = 0
 
@@ -190,20 +192,47 @@ class SimpleServer:
     """
     High level class for managing clients and accepting connections
     """
-    def __init__(self, address = Constants.DEFAULT_ADDR, chunks = 4096, socket_api: SocketServer = None, ipv6_config = None):
+    def __init__(self, 
+            address = Constants.DEFAULT_ADDR, 
+            chunks = 4096, 
+            socket_api: SocketServer = None, 
+            ipv6_config = None,
+            compression_level = 3,
+            allow_proxy = False
+        ):
         """
         address: Address to listen to.
         chunks: Size of the message chunk
         socket_api: High level socket object that inherits from `SocketAPI` class
-        await_invalidation: Timeout to delete the client after 
+        ipv6_config: ipv6 related configurations
+        compression_level: default is 3, 0 for off, compresses data using zstd
+        allow_proxy: allow proxy connections (HAProxy)
         """
         self.address = address
+        if socket_api:
+            self.server = socket_api
+        else:
+            if compression_level:
+                self.server = SocketServer(
+                    address=address,
+                    chunk_size=chunks,
+                    compression_enabled=True,
+                    compression_level=compression_level
+                )
+            else:
+                self.server = SocketServer(
+                    address=address,
+                    chunk_size=chunks,
+                    compression_enabled=False
+                )
+
         self.server = socket_api if socket_api else SocketServer(address=address, chunk_size = chunks)
         if ipv6_config:
             self.server.dualstack_options = ipv6_config
         self.version = __version__
         self.clients: List[ClientObject] = []
         self._secure = False
+        self.allow_proxy = allow_proxy
 
     #Transmit Backend
     def _send_bytes(self, data: bytes, client: socket.socket, **kwargs):
@@ -251,6 +280,8 @@ class SimpleServer:
 
     def create_server(self, reuse_port = False):
         "Creates a socket, and initializes it"
+        if self._secure and self.allow_proxy:
+            logger.warning("Proxy protocol is not supported with SSL")
         self.server.initialize_socket(reuse_port=reuse_port)
 
     def listen(self, backlog: int = 128):
@@ -265,7 +296,7 @@ class SimpleServer:
         if not self.server.socket:
             raise Exceptions.NotReadyError('Server has not been properly initialized', property=self)
         try:
-            clientobj = ClientObject(self, *self.server.accept_client())
+            clientobj = ClientObject(self, *self.server.accept_client(self.allow_proxy))
             message = clientobj.receive()
             if message.find(Constants.ACKNOWLEDGE) != -1:
                 clientobj.send(Constants.ACKNOWLEDGE)

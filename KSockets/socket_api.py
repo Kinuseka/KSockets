@@ -8,9 +8,9 @@ import threading
 import socket
 import json
 import time
-from .exceptions import client_protocol_mismatch
+from .exceptions import client_protocol_mismatch, compression_error
 from .constants import Constants as cnts
-from .packers import formatify, decodify
+from .packers import formatify, decodify, CompressionManager
 from . import options
 from loguru import logger
 import os
@@ -58,6 +58,7 @@ class SocketAPI:
         Low level function, handling protocol transmission
         """
         client_target = client if client else self.socket
+        data = self.compress_bytes(data) #Will only compress if needed
         template = {
             'a': len(data),
             'r': self.chunk_size
@@ -97,8 +98,9 @@ class SocketAPI:
             logging.debug("Data received violates protocol, Chunked size is greater than the server's chunk size")
             return b''
             # return b''
-        return self._receive_chunks(client_target, total_len)
-
+        pre_processed_data = self._receive_chunks(client_target, total_len)
+        processed_data = self.decompress_bytes(pre_processed_data)
+        return processed_data
     def _receive_chunks(self, client_target: socket.socket, total_len: int):
         "Receive packets in chunks"
         data = bytearray()
@@ -111,7 +113,7 @@ class SocketAPI:
             data.extend(chunk)
             remaining -= len(chunk)
         return bytes(data)
-        
+            
     def _recvall(self, client: socket.socket, byte_target):
         """
         Ensure we receive the exact amount of packets from TCP stream
@@ -132,6 +134,30 @@ class SocketAPI:
             _comm.send(body)
             _data = _comm.recv(cnts.HELLO_BUFF).decode(cnts.HELLO_FORM)
 
+    def _initialize_cmdec(self):
+        if self._zstd_compression:
+            self.cmdec_manager = CompressionManager(1, self._zstd_compression_level)
+        else:
+            self.cmdec_manager = None
+
+    def compress_bytes(self, data: bytes):
+        """
+        Compresses bytes if needed
+        """
+        if not self.cmdec_manager:
+            return data
+        compressed = self.cmdec_manager.compress(data)
+        return compressed
+  
+    def decompress_bytes(self, data: bytes):
+        """
+        Decompresses bytes if needed
+        """
+        if not self.cmdec_manager:
+            return data
+        decompressed = self.cmdec_manager.decompress(data)
+        return decompressed
+    
 class SocketClient(SocketAPI):
     def __init__(self, socket_obj: socket.socket = None, address: tuple = None, chunk_size = 1024) -> None:
         '''
@@ -141,7 +167,10 @@ class SocketClient(SocketAPI):
         socket: Socket object or socket class
         address: Destination address to connect to
         '''
+        self._zstd_compression = None
+        self._zstd_compression_level = 0
         super().__init__()
+        #Post Init
         self.address = address
         self.chunk_size = chunk_size # Suggested chunksize but server might enforce a preferred one
         self.header_chunksize = cnts.HEADER_CHUNKS
@@ -152,6 +181,7 @@ class SocketClient(SocketAPI):
             self.iscustom = True
         else:
             self.iscustom = False
+
 
     def _create_connection(self):
         host, port = self.address
@@ -185,15 +215,27 @@ class SocketClient(SocketAPI):
         self.socket.connect(self.address)
         #{ch:16892}
         try:
-            self.socket.sendall(formatify({'req': 'request-head'}, padding=1024))
-            _raw_header = self.socket.recv(1024)
-            _initial_header = decodify(_raw_header, padding=1024).get('ch', None)
+            self.socket.sendall(formatify({'req': 'request-head'}, padding=cnts.INIT_BUF))
+            _raw_header = self.socket.recv(cnts.INIT_BUF)
+            _message = decodify(_raw_header, padding=cnts.INIT_BUF)
+            _initial_header = _message.get('ch', None)
+            _compression_conf = _message.get('enc', None)
             #sc indicates server allows client suggestion
             if _initial_header == 'sc': 
                 _packed_msg = json.dumps({'ch': self.header_chunksize})
                 self.socket.sendall(_packed_msg.encode('utf-8'))
             elif isinstance(_initial_header, int):
                 self.chunk_size = _initial_header
+            if _compression_conf:
+                self._zstd_compression = _compression_conf[:4]
+                if self._zstd_compression not in cnts.CMPDEC_SUPPORT:
+                    raise client_protocol_mismatch(f"Server sent a compression algorithm: {self._zstd_compression} but is not supported.")
+                try:
+                    self._zstd_compression_level = int(_compression_conf[5:8])
+                except TypeError:
+                    raise client_protocol_mismatch("Server sent invalid compression level: {}".format(self._zstd_compression_level), property=self)
+
+            self._initialize_cmdec()
         except json.decoder.JSONDecodeError as e:
             raise client_protocol_mismatch("Client cannot decode server's initial response. The client might be outdated or the server is invalid", property=self)
         except KeyError as e:
@@ -204,7 +246,14 @@ class SocketClient(SocketAPI):
         if self.socket:
             self.socket.close()
 class SocketServer(SocketAPI):
-    def __init__(self, socket_obj: socket.socket = None, address: tuple = ('127.0.0.1', 3010,), chunk_size = 1024, enforce_chunks = True, dualstack_options = options.DUALSTACK_DISABLED) -> None:
+    def __init__(self, socket_obj: socket.socket = None, 
+        address: tuple = ('127.0.0.1', 3010,), 
+        chunk_size = 1024, 
+        enforce_chunks = True,
+        dualstack_options = options.DUALSTACK_DISABLED, 
+        compression_enabled: bool = True,
+        compression_level: int = 3
+    ) -> None:
         '''
         A server-side API for sockets.
         Meant to bridge the functionality between SimpleSocket and Python sockets
@@ -214,6 +263,12 @@ class SocketServer(SocketAPI):
         chunk_size: Size of the message chunks
         enforce_chunks: Force clients to use your chunk_size option [Recommended: True]
         '''
+        self._zstd_compression = None
+        self._zstd_compression_level = 0
+        if compression_enabled:
+            #We use zstd as our default compressor
+            self._zstd_compression = "zstd"
+            self._zstd_compression_level = compression_level
         super().__init__()
         self.address = address
         self.chunk_size = chunk_size
@@ -226,6 +281,7 @@ class SocketServer(SocketAPI):
             self.iscustom = True
         else:
             self.iscustom = False
+        self._initialize_cmdec() #Server will early initialize this
 
     def _create_socket(self):
         #Following socket.create_server as a reference with modifications
@@ -277,25 +333,73 @@ class SocketServer(SocketAPI):
     def hello_ack(self):
         ...
     
-    def accept_client(self):
+    def proxy_handler(self, client: socket.socket):
+        initial_bytes = client.recv(16, socket.MSG_PEEK)
+        canonical_ip = None
+        canonical_port = None
+        # HAProxy v1 (text protocol)
+        if initial_bytes.startswith(cnts.MAGIC_PROXV1):
+            # Read until CRLF for complete HAProxy header
+            buffer = b''
+            while b'\r\n' not in buffer:
+                buffer += client.recv(1)
+            proxy_line, _, _ = buffer.partition(b'\r\n')
+            proxy_parts = proxy_line.decode('ascii').split(' ')
+            if len(proxy_parts) >= 6 and proxy_parts[1] in ('TCP4', 'TCP6'):
+                canonical_ip = proxy_parts[2]
+                canonical_port = int(proxy_parts[4])
+                # inbound_port = int(proxy_parts[5])  #If needed
+        # HAProxy v2 (binary protocol)
+        elif initial_bytes.startswith(cnts.MAGIC_PROXV2):
+            client.recv(12) #Consume it we wont need it
+            header_format = client.recv(4)       
+            fam = header_format[1]
+            hdr_len = int.from_bytes(header_format[2:4], byteorder='big')
+            header_data = client.recv(hdr_len)
+            if fam == 0x11:
+                #IPv4 address
+                src_addr = socket.inet_ntop(socket.AF_INET, header_data[0:4])
+                # dst_addr = socket.inet_ntop(socket.AF_INET, header_data[4:8])
+                src_port = int.from_bytes(header_data[8:10], byteorder='big')
+                # dst_port = int.from_bytes(header_data[10:12], byteorder='big')
+                canonical_ip = src_addr
+                canonical_port = src_port
+            elif fam == 0x21:
+                #IPv6 address
+                src_addr = socket.inet_ntop(socket.AF_INET6, header_data[0:16])
+                # dst_addr = socket.inet_ntop(socket.AF_INET6, header_data[16:32])
+                src_port = int.from_bytes(header_data[32:34], byteorder='big')
+                # dst_port = int.from_bytes(header_data[34:36], byteorder='big')
+                canonical_ip = src_addr
+                canonical_port = src_port
+        return canonical_ip, canonical_port
+
+    def accept_client(self, proxy_aware):
         """
         Accept connection and allow only after protocol has been enforced
         """
         while True:
             self.socket.setblocking(False)
+            canon_address = (None, None)
             try:
                 client, address = self.socket.accept()
                 self.socket.setblocking(True)
                 client.setblocking(True)
-                request = decodify(client.recv(1024), padding=1024)
-                if request.get("req") == "request-head":
-                    client.sendall(formatify({'ch': self.chunk_size}, padding=1024))
-                    return (client, address) 
-                client.close()
+                if proxy_aware and not hasattr(client, 'context'):
+                    canon_address = self.proxy_handler(client)              
+                request = decodify(client.recv(cnts.INIT_BUF), padding=cnts.INIT_BUF)
+                if request.get("req") != "request-head":
+                    client.close()
+                header_data = {
+                    'ch': self.chunk_size
+                }
+                if self._zstd_compression:
+                    header_data['enc'] = f'{self._zstd_compression} {self._zstd_compression_level}'
+                client.sendall(formatify(header_data, padding=cnts.INIT_BUF))
+                return client, address, canon_address
             except (socket.timeout, BlockingIOError, OSError, socket.error):
                 time.sleep(0.5)
                 continue
 
-        
     def close(self):
         self.socket.close()
